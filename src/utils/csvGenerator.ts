@@ -129,8 +129,7 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           }
           value = foundPackSize;
         } else if (fieldPath === '__gtin__') {
-          const gtinValue = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
-          value = gtinValue ? `="${gtinValue}"` : '';
+          value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
         }
         // Escape CSV special characters
         if (value.includes(',') || value.includes('"') || value.includes('\n')) {
