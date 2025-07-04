@@ -24,14 +24,27 @@ export const useXMLConverter = () => {
       });
       return;
     }
-    setFiles(newFiles);
+    // Filter out duplicates by name and size
+    const existingFiles = files;
+    const uniqueNewFiles = newFiles.filter(
+      nf => !existingFiles.some(ef => ef.name === nf.name && ef.size === nf.size)
+    );
+    if (uniqueNewFiles.length < newFiles.length) {
+      toast({
+        title: "Duplicate files skipped",
+        description: `Some files were already uploaded and have been ignored.`,
+        variant: "destructive"
+      });
+    }
+    const allFiles = [...existingFiles, ...uniqueNewFiles];
+    setFiles(allFiles);
     setResults([]);
     setProgress(0);
     
     // Analyze first file to extract field structure
-    if (newFiles.length > 0) {
+    if (allFiles.length > 0) {
       try {
-        const fields = await analyzeXMLStructure(newFiles[0]);
+        const fields = await analyzeXMLStructure(allFiles[0]);
         setXmlFields(fields);
         // Auto-select all mapping fields by default
         setSelectedFields(fields.map(f => f.path));
@@ -49,9 +62,9 @@ export const useXMLConverter = () => {
     
     toast({
       title: "Files loaded",
-      description: `${newFiles.length} XML files ready for conversion`,
+      description: `${uniqueNewFiles.length} new XML files ready for conversion`,
     });
-  }, [toast]);
+  }, [toast, files]);
 
   const startConversion = async () => {
     if (files.length === 0) {
