@@ -41,12 +41,117 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     extractFields(xmlDoc.documentElement);
   }
   
-  // Remove duplicates based on path
-  const uniqueFields = fields.filter((field, index, self) => 
-    index === self.findIndex(f => f.path === field.path)
-  );
-  
-  return uniqueFields;
+  // Only return the requested fields for mapping
+  const mappingFields: XMLField[] = [];
+
+  // 1. Order Reference
+  const orderRef = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
+  mappingFields.push({
+    path: '__order_reference__',
+    name: 'Order Reference',
+    type: 'text',
+    sample: orderRef
+  });
+
+  // 2. Customer (town)
+  const buyer = xmlDoc.querySelector('buyer');
+  let customerSample = '';
+  if (buyer) {
+    const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+    const townIdentification = additionalPartyIdentifications.find(api => {
+      const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+      const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+      return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /[a-zA-Z]/.test(valueText);
+    });
+    if (townIdentification) {
+      customerSample = townIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+    }
+  }
+  mappingFields.push({
+    path: '__customer_town__',
+    name: 'Customer',
+    type: 'text',
+    sample: customerSample
+  });
+
+  // 3. Creation Date
+  const creationDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
+  mappingFields.push({
+    path: '__creation_date__',
+    name: 'Creation Date',
+    type: 'text',
+    sample: creationDate
+  });
+
+  // 4. Delivery Date
+  const deliveryDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
+  mappingFields.push({
+    path: '__delivery_date__',
+    name: 'Delivery Date',
+    type: 'text',
+    sample: deliveryDate
+  });
+
+  // 5. Order Lines (count)
+  const orderLinesCount = xmlDoc.querySelectorAll('orderLineItem').length.toString();
+  mappingFields.push({
+    path: '__order_lines__',
+    name: 'Order Lines',
+    type: 'text',
+    sample: orderLinesCount
+  });
+
+  // 6. Order Lines/Quantity (per line item)
+  const firstOrderLineQuantity = xmlDoc.querySelector('orderLineItem > requestedQuantity > value')?.textContent?.trim() || '';
+  mappingFields.push({
+    path: '__order_line_quantity__',
+    name: 'Order Lines/Quantity',
+    type: 'text',
+    sample: firstOrderLineQuantity
+  });
+
+  // 7. Order Lines/Unit Price (per line item)
+  const firstOrderLineUnitPrice = xmlDoc.querySelector('orderLineItem > netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
+  mappingFields.push({
+    path: '__order_line_unit_price__',
+    name: 'Order Lines/Unit Price',
+    type: 'text',
+    sample: firstOrderLineUnitPrice
+  });
+
+  // 8. Pack Size (per line item)
+  let firstOrderLinePackSize = '';
+  let firstOrderLineGTIN = '';
+  const firstOrderLineItem = xmlDoc.querySelector('orderLineItem');
+  if (firstOrderLineItem) {
+    // Pack Size
+    const additionalTradeItemIdentifications = Array.from(firstOrderLineItem.querySelectorAll('additionalTradeItemIdentification'));
+    const packSizeIdentification = additionalTradeItemIdentifications.find(ati => {
+      const type = ati.querySelector('additionalTradeItemIdentificationType')?.textContent?.trim();
+      const valueText = ati.querySelector('additionalTradeItemIdentificationValue')?.textContent?.trim() || '';
+      return type === 'SUPPLIER_ASSIGNED' && /^\d+$/.test(valueText);
+    });
+    if (packSizeIdentification) {
+      firstOrderLinePackSize = packSizeIdentification.querySelector('additionalTradeItemIdentificationValue')?.textContent?.trim() || '';
+    }
+    // GTIN
+    const gtin = firstOrderLineItem.querySelector('gtin')?.textContent?.trim() || '';
+    firstOrderLineGTIN = gtin;
+  }
+  mappingFields.push({
+    path: '__pack_size__',
+    name: 'Pack Size',
+    type: 'text',
+    sample: firstOrderLinePackSize
+  });
+  mappingFields.push({
+    path: '__gtin__',
+    name: 'GTIN',
+    type: 'text',
+    sample: firstOrderLineGTIN
+  });
+
+  return mappingFields;
 };
 
 export const findElementByPath = (root: Element, path: string, documentRoot: Element): Element | null => {

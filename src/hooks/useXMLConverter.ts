@@ -33,6 +33,8 @@ export const useXMLConverter = () => {
       try {
         const fields = await analyzeXMLStructure(newFiles[0]);
         setXmlFields(fields);
+        // Auto-select all mapping fields by default
+        setSelectedFields(fields.map(f => f.path));
         setShowFieldMapping(true);
         console.log('Extracted fields:', fields);
       } catch (error) {

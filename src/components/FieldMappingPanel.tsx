@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, Tag, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -34,7 +34,14 @@ const FieldMappingPanel: React.FC<FieldMappingPanelProps> = ({
     onSelectionChange([]);
   };
 
-  const groupedFields = fields.reduce((acc, field) => {
+  const [search, setSearch] = useState('');
+
+  const filteredFields = fields.filter(field =>
+    field.name.toLowerCase().includes(search.toLowerCase()) ||
+    field.path.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const groupedFields = filteredFields.reduce((acc, field) => {
     const rootElement = field.path.split('.')[0];
     if (!acc[rootElement]) {
       acc[rootElement] = [];
@@ -50,7 +57,6 @@ const FieldMappingPanel: React.FC<FieldMappingPanelProps> = ({
           <h4 className="font-medium text-gray-700">Available Fields</h4>
           <Badge variant="secondary">{selectedFields.length} selected</Badge>
         </div>
-        
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={selectAll}>
             Select All
@@ -59,6 +65,15 @@ const FieldMappingPanel: React.FC<FieldMappingPanelProps> = ({
             Clear All
           </Button>
         </div>
+      </div>
+      <div className="my-2">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search fields..."
+          className="w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+        />
       </div>
 
       <ScrollArea className="h-80 w-full border rounded-lg p-4">
@@ -119,14 +134,14 @@ const FieldMappingPanel: React.FC<FieldMappingPanelProps> = ({
         <div className="p-4 bg-green-50 rounded-lg">
           <h5 className="font-medium text-green-800 mb-2">Selected Fields Preview</h5>
           <div className="flex flex-wrap gap-2">
-            {selectedFields.slice(0, 10).map((fieldPath) => {
-              const field = fields.find(f => f.path === fieldPath);
-              return (
-                <Badge key={fieldPath} variant="outline" className="text-green-700 border-green-300">
-                  {field?.name || fieldPath}
+            {fields
+              .filter(f => selectedFields.includes(f.path))
+              .slice(0, 10)
+              .map((field) => (
+                <Badge key={field.path} variant="outline" className="text-green-700 border-green-300">
+                  {field.name}
                 </Badge>
-              );
-            })}
+              ))}
             {selectedFields.length > 10 && (
               <Badge variant="outline" className="text-green-700 border-green-300">
                 +{selectedFields.length - 10} more

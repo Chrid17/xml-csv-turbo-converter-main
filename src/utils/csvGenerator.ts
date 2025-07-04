@@ -69,42 +69,81 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
 
   console.log(`Processing ${recordNodes.length} record nodes`);
 
-  recordNodes.forEach((record, index) => {
-    const row: string[] = [];
-    
-    fields.forEach(fieldPath => {
-      let value = '';
-      
-      if (fieldPath.includes('@')) {
-        // Handle attributes
-        const [elementPath, attrName] = fieldPath.split('@');
-        const element = findElementByPath(record, elementPath, xmlDoc.documentElement!);
-        if (element && element.hasAttribute(attrName)) {
-          value = element.getAttribute(attrName) || '';
+  // For new mapping: only use <orderLineItem> as record nodes
+  const orderLineItems = Array.from(xmlDoc.querySelectorAll('orderLineItem'));
+  if (orderLineItems.length > 0) {
+    orderLineItems.forEach((orderLineItem, index) => {
+      const row: string[] = [];
+      fields.forEach(fieldPath => {
+        let value = '';
+        if (fieldPath === '__order_reference__') {
+          value = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
+        } else if (fieldPath === '__customer_town__') {
+          const buyer = xmlDoc.querySelector('buyer');
+          if (buyer) {
+            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+            const townIdentification = additionalPartyIdentifications.find(api => {
+              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /[a-zA-Z]/.test(valueText);
+            });
+            if (townIdentification) {
+              value = townIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+            }
+          }
+        } else if (fieldPath === '__creation_date__') {
+          const fullDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
+          const ymd = fullDate.split('T')[0];
+          if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+            const [y, m, d] = ymd.split('-');
+            value = `${parseInt(d, 10)}/${parseInt(m, 10)}/${y}`;
+          } else {
+            value = ymd;
+          }
+        } else if (fieldPath === '__delivery_date__') {
+          const delDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
+          if (/^\d{4}-\d{2}-\d{2}$/.test(delDate)) {
+            const [y, m, d] = delDate.split('-');
+            value = `${parseInt(d, 10)}/${parseInt(m, 10)}/${y}`;
+          } else {
+            value = delDate;
+          }
+        } else if (fieldPath === '__order_lines__') {
+          value = (index + 1).toString();
+        } else if (fieldPath === '__order_line_quantity__') {
+          value = orderLineItem.querySelector('requestedQuantity > value')?.textContent?.trim() || '';
+        } else if (fieldPath === '__order_line_unit_price__') {
+          value = orderLineItem.querySelector('netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
+        } else if (fieldPath === '__pack_size__') {
+          // Robust: always pick the first SUPPLIER_ASSIGNED numeric value for this line
+          let foundPackSize = '';
+          const additionalTradeItemIdentifications = Array.from(orderLineItem.querySelectorAll('additionalTradeItemIdentification'));
+          for (const ati of additionalTradeItemIdentifications) {
+            const type = ati.querySelector('additionalTradeItemIdentificationType')?.textContent?.trim();
+            const valueText = ati.querySelector('additionalTradeItemIdentificationValue')?.textContent?.trim() || '';
+            // Only accept 1-3 digit numbers as pack size
+            if (type === 'SUPPLIER_ASSIGNED' && /^\d{1,3}$/.test(valueText)) {
+              foundPackSize = valueText;
+              break;
+            }
+          }
+          value = foundPackSize;
+        } else if (fieldPath === '__gtin__') {
+          const gtinValue = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
+          value = gtinValue ? `="${gtinValue}"` : '';
         }
-      } else {
-        // Handle elements
-        const element = findElementByPath(record, fieldPath, xmlDoc.documentElement!);
-        if (element) {
-          value = element.textContent?.trim() || '';
+        // Escape CSV special characters
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          value = `"${value.replace(/"/g, '""')}"`;
         }
+        row.push(value);
+      });
+      if (row.some(cell => cell.trim() !== '')) {
+        rows.push(row);
       }
-      
-      // Escape CSV special characters
-      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-        value = `"${value.replace(/"/g, '""')}"`;
-      }
-      
-      row.push(value);
+      console.log(`OrderLineItem ${index + 1} data:`, row);
     });
-    
-    // Only add row if it has some data
-    if (row.some(cell => cell.trim() !== '')) {
-      rows.push(row);
-    }
-    
-    console.log(`Record ${index + 1} data:`, row);
-  });
+  }
 
   const csvContent = rows.map(row => row.join(',')).join('\n');
   console.log(`Generated CSV with ${rows.length - 1} data rows`);

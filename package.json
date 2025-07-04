@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://yourusername.github.io/your-repo",
+  "homepage": "https://Chrid17.github.io/xml-csv-turbo-converter-main",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

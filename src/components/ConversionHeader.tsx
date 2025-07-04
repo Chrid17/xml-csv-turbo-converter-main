@@ -7,7 +7,7 @@ const ConversionHeader = () => {
     <div className="text-center mb-8">
       <div className="flex items-center justify-center gap-3 mb-4">
         <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">
-          XML to CSV Turbo Converter
+          XML to CSV Converter
         </h1>
       </div>
       <p className="text-lg text-gray-600 max-w-2xl mx-auto">
