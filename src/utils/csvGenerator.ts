@@ -128,11 +128,11 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           }
           value = foundPackSize;
         } else if (fieldPath === '__gtin__') {
-          // Output GTIN as a plain string of digits, no formatting
-          value = orderLineItem.querySelector('gtin')?.textContent?.replace(/\D/g, '') || '';
+          // Output GTIN as plain value, no quotes, no formatting
+          value = orderLineItem.querySelector('gtin')?.textContent || '';
         }
-        // Escape CSV special characters
-        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        // Escape CSV special characters, but DO NOT quote GTIN
+        if (fieldPath !== '__gtin__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
           value = `"${value.replace(/"/g, '""')}"`;
         }
         row.push(value);
