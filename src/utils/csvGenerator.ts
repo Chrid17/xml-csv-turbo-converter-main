@@ -1,10 +1,42 @@
 import { XMLField } from '@/types';
+import { findElementByPath } from './xmlParser';
 
-export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: XMLField[]): Promise<string> => {
+// Helper: Escape CSV value unless it's a GTIN (which should not be quoted)
+function escapeCsv(value: string, isGtin = false): string {
+  if (isGtin) return value;
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+// Helper: Extract branch code from XML
+function extractBranchCode(xmlDoc: Document): string {
+  // Option 1: Look for <branchCode> element
+  let branchCode = xmlDoc.querySelector('branchCode')?.textContent?.trim() || '';
+  // Option 2: Look for additionalPartyIdentification with type Buyer_ASSIGNED_IDENTIFIER_FOR_A_PARTY
+  if (!branchCode) {
+    const buyer = xmlDoc.querySelector('buyer');
+    if (buyer) {
+      const branchId = Array.from(buyer.querySelectorAll('additionalPartyIdentification')).find(api => {
+        const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+        return type === 'Buyer_ASSIGNED_IDENTIFIER_FOR_A_PARTY';
+      });
+      if (branchId) {
+        branchCode = branchId.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+      }
+    }
+  }
+  return branchCode;
+}
+
+export const convertXMLToCSV = async (
+  file: File,
+  fields: string[],
+  xmlFields: XMLField[]
+): Promise<string> => {
   const text = await file.text();
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(text, 'text/xml');
-  
+  const xmlDoc = new DOMParser().parseFromString(text, 'text/xml');
   if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('Invalid XML format');
   }
@@ -15,60 +47,11 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
     return field ? field.name : path;
   });
   rows.push(headers);
-  console.log('CSV Headers:', headers);
 
-  // Find all possible record nodes by looking for repeating elements
-  const findAllRecordNodes = (node: Element): Element[] => {
-    const allNodes: Element[] = [];
-    
-    // Check if current node has data (text content or attributes)
-    const hasData = node.textContent?.trim() || node.attributes.length > 0;
-    if (hasData) {
-      allNodes.push(node);
-    }
-    
-    // Recursively search children
-    Array.from(node.children).forEach(child => {
-      const childNodes = findAllRecordNodes(child);
-      allNodes.push(...childNodes);
-    });
-    
-    return allNodes;
-  };
-
-  // Get all potential record nodes
-  const allNodes = xmlDoc.documentElement ? findAllRecordNodes(xmlDoc.documentElement) : [];
-  console.log(`Found ${allNodes.length} potential record nodes`);
-
-  // Group nodes that might represent the same type of record
-  const nodesByTag: { [key: string]: Element[] } = {};
-  allNodes.forEach(node => {
-    const tagName = node.tagName;
-    if (!nodesByTag[tagName]) {
-      nodesByTag[tagName] = [];
-    }
-    nodesByTag[tagName].push(node);
-  });
-
-  // Find the tag with the most instances (likely our record type)
-  let recordNodes: Element[] = [];
-  let maxCount = 0;
-  Object.entries(nodesByTag).forEach(([tag, nodes]) => {
-    if (nodes.length > maxCount && nodes.length > 1) {
-      maxCount = nodes.length;
-      recordNodes = nodes;
-    }
-  });
-
-  // If no repeating elements found, treat the entire document as one record
-  if (recordNodes.length === 0 && xmlDoc.documentElement) {
-    recordNodes = [xmlDoc.documentElement];
-  }
-
-  console.log(`Processing ${recordNodes.length} record nodes`);
-
-  // For new mapping: only use <orderLineItem> as record nodes
+  // Only use <orderLineItem> as record nodes
   const orderLineItems = Array.from(xmlDoc.querySelectorAll('orderLineItem'));
+  const branchCode = extractBranchCode(xmlDoc);
+
   if (orderLineItems.length > 0) {
     orderLineItems.forEach((orderLineItem, index) => {
       const row: string[] = [];
@@ -76,11 +59,12 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
         let value = '';
         if (fieldPath === '__order_reference__') {
           value = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
+        } else if (fieldPath === '__branch_code__') {
+          value = branchCode;
         } else if (fieldPath === '__customer_town__') {
           const buyer = xmlDoc.querySelector('buyer');
           if (buyer) {
-            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
-            const townIdentification = additionalPartyIdentifications.find(api => {
+            const townIdentification = Array.from(buyer.querySelectorAll('additionalPartyIdentification')).find(api => {
               const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
               const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
               return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /[a-zA-Z]/.test(valueText);
@@ -113,13 +97,11 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
         } else if (fieldPath === '__order_line_unit_price__') {
           value = orderLineItem.querySelector('netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
         } else if (fieldPath === '__pack_size__') {
-          // Robust: always pick the first SUPPLIER_ASSIGNED numeric value for this line
           let foundPackSize = '';
           const additionalTradeItemIdentifications = Array.from(orderLineItem.querySelectorAll('additionalTradeItemIdentification'));
           for (const ati of additionalTradeItemIdentifications) {
             const type = ati.querySelector('additionalTradeItemIdentificationType')?.textContent?.trim();
             const valueText = ati.querySelector('additionalTradeItemIdentificationValue')?.textContent?.trim() || '';
-            // Only accept 1-3 digit numbers as pack size
             if (type === 'SUPPLIER_ASSIGNED' && /^\d{1,3}$/.test(valueText)) {
               foundPackSize = valueText;
               break;
@@ -127,56 +109,30 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           }
           value = foundPackSize;
         } else if (fieldPath === '__gtin__') {
-          // Prefix GTIN with single quote to force Excel to treat as text (prevents scientific notation)
-          const rawGtin = orderLineItem.querySelector('gtin')?.textContent || '';
-          value = rawGtin ? "'" + rawGtin : '';
-        } else if (fieldPath === '__branch_code__') {
-          // Extract branch code from buyer > additionalPartyIdentification
-          const buyer = xmlDoc.querySelector('buyer');
-          if (buyer) {
-            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
-            // Find the first numeric value (likely the branch code)
-            const branchCodeObj = additionalPartyIdentifications.find(api => {
-              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
-              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
-            });
-            if (branchCodeObj) {
-              value = branchCodeObj.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-            }
-          }
+          // Do NOT quote GTIN, do NOT prefix with single quote, just output as digits
+          value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
         }
-        // Escape CSV special characters, but DO NOT quote GTIN or branch code
-        if (fieldPath !== '__gtin__' && fieldPath !== '__branch_code__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-          value = `"${value.replace(/"/g, '""')}"`;
-        }
-        row.push(value);
+        // Escape CSV special characters, but DO NOT quote GTIN
+        row.push(escapeCsv(value, fieldPath === '__gtin__'));
       });
       if (row.some(cell => cell.trim() !== '')) {
         rows.push(row);
       }
-      console.log(`OrderLineItem ${index + 1} data:`, row);
     });
   }
 
-  const csvContent = rows.map(row => row.join(',')).join('\n');
-  console.log(`Generated CSV with ${rows.length - 1} data rows`);
-  
-  return csvContent;
+  return rows.map(row => row.join(',')).join('\n');
 };
 
-// NEW: Combine multiple XML files into one CSV with blank rows between each file's data
 export const convertMultipleXMLToCSV = async (
   files: File[],
   fields: string[],
   xmlFields: XMLField[],
-  blankRowCount: number = 2 // Number of blank rows between each file's data
+  blankRowCount: number = 2
 ): Promise<string> => {
   if (files.length === 0) return '';
-
   const combinedRows: string[][] = [];
   let header: string[] = [];
-
   for (let i = 0; i < files.length; i++) {
     const csv = await convertXMLToCSV(files[i], fields, xmlFields);
     const lines = csv.split('\n').map(line => line.split(','));
@@ -184,36 +140,29 @@ export const convertMultipleXMLToCSV = async (
       header = lines[0];
       combinedRows.push(header);
     }
-    // Always skip header for subsequent files
-    const dataRows = i === 0 ? lines.slice(1) : lines.slice(1);
+    const dataRows = lines.slice(1);
     if (i > 0) {
-      // Insert blank rows for separation
       for (let b = 0; b < blankRowCount; b++) {
         combinedRows.push(Array(header.length).fill(''));
       }
     }
     combinedRows.push(...dataRows);
   }
-
-  // Remove trailing blank rows
   while (combinedRows.length > 0 && combinedRows[combinedRows.length - 1].every(cell => cell === '')) {
     combinedRows.pop();
   }
-
   return combinedRows.map(row => row.join(',')).join('\n');
 };
 
 export const downloadAllAsZip = async (results: Array<{ fileName: string; status: string; csvData?: string }>) => {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
-  
   results.forEach(result => {
     if (result.status === 'success' && result.csvData) {
       const fileName = result.fileName.replace('.xml', '.csv');
       zip.file(fileName, result.csvData);
     }
   });
-  
   const content = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(content);
   const a = document.createElement('a');

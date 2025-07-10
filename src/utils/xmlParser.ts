@@ -1,4 +1,3 @@
-
 import { XMLField } from '@/types';
 
 export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
@@ -53,7 +52,33 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: orderRef
   });
 
-  // 2. Customer (town)
+  // 2. Branch Code (inserted after Order Reference)
+  // Try to extract branch code from XML. Adjust the selector as needed for your XML structure.
+  // Common locations: buyer > additionalPartyIdentification (type: BRANCH_CODE), or a direct <branchCode> element.
+  let branchCode = '';
+  // Option 1: Look for a <branchCode> element anywhere
+  branchCode = xmlDoc.querySelector('branchCode')?.textContent?.trim() || '';
+ // Option 2: Look for additionalPartyIdentification with type Buyer_ASSIGNED_IDENTIFIER_FOR_A_PARTY
+if (!branchCode) {
+  const buyer = xmlDoc.querySelector('buyer');
+  if (buyer) {
+    const branchId = Array.from(buyer.querySelectorAll('additionalPartyIdentification')).find(api => {
+      const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+      return type === 'Buyer_ASSIGNED_IDENTIFIER_FOR_A_PARTY';
+    });
+    if (branchId) {
+      branchCode = branchId.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+    }
+  }
+}
+  mappingFields.push({
+    path: '__branch_code__',
+    name: 'Branch Code',
+    type: 'text',
+    sample: branchCode
+  });
+
+  // 3. Customer (town)
   const buyer = xmlDoc.querySelector('buyer');
   let customerSample = '';
   if (buyer) {
@@ -74,7 +99,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: customerSample
   });
 
-  // 3. Creation Date
+  // 4. Creation Date
   const creationDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__creation_date__',
@@ -83,7 +108,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: creationDate
   });
 
-  // 4. Delivery Date
+  // 5. Delivery Date
   const deliveryDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__delivery_date__',
@@ -92,7 +117,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: deliveryDate
   });
 
-  // 5. Order Lines (count)
+  // 6. Order Lines (count)
   const orderLinesCount = xmlDoc.querySelectorAll('orderLineItem').length.toString();
   mappingFields.push({
     path: '__order_lines__',
@@ -101,7 +126,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: orderLinesCount
   });
 
-  // 6. Order Lines/Quantity (per line item)
+  // 7. Order Lines/Quantity (per line item)
   const firstOrderLineQuantity = xmlDoc.querySelector('orderLineItem > requestedQuantity > value')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__order_line_quantity__',
@@ -110,7 +135,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: firstOrderLineQuantity
   });
 
-  // 7. Order Lines/Unit Price (per line item)
+  // 8. Order Lines/Unit Price (per line item)
   const firstOrderLineUnitPrice = xmlDoc.querySelector('orderLineItem > netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__order_line_unit_price__',
@@ -119,7 +144,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: firstOrderLineUnitPrice
   });
 
-  // 8. Pack Size (per line item)
+  // 9. Pack Size (per line item)
   let firstOrderLinePackSize = '';
   let firstOrderLineGTIN = '';
   const firstOrderLineItem = xmlDoc.querySelector('orderLineItem');
@@ -136,7 +161,8 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     }
     // GTIN
     const gtin = firstOrderLineItem.querySelector('gtin')?.textContent?.trim() || '';
-    firstOrderLineGTIN = gtin;
+    // Only keep digits for GTIN, so it will be a string of numbers
+    firstOrderLineGTIN = /^\d+$/.test(gtin) ? gtin : '';
   }
   mappingFields.push({
     path: '__pack_size__',
@@ -188,4 +214,3 @@ export const findElementByPath = (root: Element, path: string, documentRoot: Ele
   }
   
   return current;
-};
