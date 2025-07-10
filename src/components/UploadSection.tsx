@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Upload, FileText, Settings } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,19 @@ const UploadSection: React.FC<UploadSectionProps> = ({
   onFilesSelected,
   onSelectionChange
 }) => {
+  // Track skipped (duplicate) files for user feedback
+  const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
+
+  // Wrap onFilesSelected to capture skipped files
+  const handleFilesSelectedWithSkipped = (newFiles: File[]) => {
+    // Get current file names and sizes
+    const existing = new Set(files.map(f => f.name + '|' + f.size));
+    const unique = newFiles.filter(f => !existing.has(f.name + '|' + f.size));
+    const skipped = newFiles.filter(f => existing.has(f.name + '|' + f.size));
+    setSkippedFiles(skipped.map(f => f.name));
+    onFilesSelected(unique);
+  };
+
   return (
     <div className="lg:col-span-2">
       <Card className="border-0 shadow-lg bg-white/70 backdrop-blur-sm">
@@ -37,7 +50,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <FileUploadZone onFilesSelected={onFilesSelected} />
+          <FileUploadZone onFilesSelected={handleFilesSelectedWithSkipped} />
           
           {files.length > 0 && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg">
@@ -46,6 +59,16 @@ const UploadSection: React.FC<UploadSectionProps> = ({
                 <span className="font-medium">{files.length} files selected</span>
                 <Badge variant="secondary">{files.length}/360</Badge>
               </div>
+              <ul className="list-disc list-inside text-sm text-gray-700 mt-2">
+                {files.map((file, idx) => (
+                  <li key={file.name + file.size + idx}>{file.name}</li>
+                ))}
+              </ul>
+              {skippedFiles.length > 0 && (
+                <div className="mt-2 text-xs text-red-600">
+                  Already uploaded: {skippedFiles.join(', ')}
+                </div>
+              )}
             </div>
           )}
         </CardContent>

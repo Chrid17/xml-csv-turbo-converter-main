@@ -1,4 +1,3 @@
-
 import { XMLField } from '@/types';
 import { findElementByPath } from './xmlParser';
 
@@ -129,7 +128,8 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           }
           value = foundPackSize;
         } else if (fieldPath === '__gtin__') {
-          value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
+          // Output GTIN as a plain string of digits, no formatting
+          value = orderLineItem.querySelector('gtin')?.textContent?.replace(/\D/g, '') || '';
         }
         // Escape CSV special characters
         if (value.includes(',') || value.includes('"') || value.includes('\n')) {
@@ -148,6 +148,44 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
   console.log(`Generated CSV with ${rows.length - 1} data rows`);
   
   return csvContent;
+};
+
+// NEW: Combine multiple XML files into one CSV with blank rows between each file's data
+export const convertMultipleXMLToCSV = async (
+  files: File[],
+  fields: string[],
+  xmlFields: XMLField[],
+  blankRowCount: number = 2 // Number of blank rows between each file's data
+): Promise<string> => {
+  if (files.length === 0) return '';
+
+  let combinedRows: string[][] = [];
+  let header: string[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const csv = await convertXMLToCSV(files[i], fields, xmlFields);
+    const lines = csv.split('\n').map(line => line.split(','));
+    if (i === 0) {
+      header = lines[0];
+      combinedRows.push(header);
+    }
+    // Always skip header for subsequent files
+    const dataRows = i === 0 ? lines.slice(1) : lines.slice(1);
+    if (i > 0) {
+      // Insert blank rows for separation
+      for (let b = 0; b < blankRowCount; b++) {
+        combinedRows.push(Array(header.length).fill(''));
+      }
+    }
+    combinedRows.push(...dataRows);
+  }
+
+  // Remove trailing blank rows
+  while (combinedRows.length > 0 && combinedRows[combinedRows.length - 1].every(cell => cell === '')) {
+    combinedRows.pop();
+  }
+
+  return combinedRows.map(row => row.join(',')).join('\n');
 };
 
 export const downloadAllAsZip = async (results: Array<{ fileName: string; status: string; csvData?: string }>) => {

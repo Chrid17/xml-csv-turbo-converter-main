@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { XMLField, ConversionResult } from '@/types';
 import { analyzeXMLStructure } from '@/utils/xmlParser';
-import { convertXMLToCSV } from '@/utils/csvGenerator';
+import { convertXMLToCSV, convertMultipleXMLToCSV } from '@/utils/csvGenerator';
 
 export const useXMLConverter = () => {
   const [files, setFiles] = useState<File[]>([]);
@@ -87,39 +87,36 @@ export const useXMLConverter = () => {
 
     setIsProcessing(true);
     setProgress(0);
-    const conversionResults: ConversionResult[] = [];
+    setResults([]);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    try {
+      // Use the new function to combine all files into one CSV
+      const csvData = await convertMultipleXMLToCSV(files, selectedFields, xmlFields, 2); // 2 blank rows between
       const result: ConversionResult = {
-        fileName: file.name,
-        status: 'processing'
+        fileName: files.length === 1 ? files[0].name.replace(/\.xml$/i, '.csv') : 'combined_orders.csv',
+        status: 'success',
+        csvData,
+        rowCount: csvData.split('\n').length - 1
       };
-      
-      conversionResults.push(result);
-      setResults([...conversionResults]);
-
-      try {
-        const csvData = await convertXMLToCSV(file, selectedFields, xmlFields);
-        result.status = 'success';
-        result.csvData = csvData;
-        result.rowCount = csvData.split('\n').length - 1; // Subtract header row
-        console.log(`Converted ${file.name}:`, { rowCount: result.rowCount, preview: csvData.substring(0, 200) });
-      } catch (error) {
-        result.status = 'error';
-        result.error = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`Error converting ${file.name}:`, error);
-      }
-
-      setProgress(((i + 1) / files.length) * 100);
-      setResults([...conversionResults]);
+      setResults([result]);
+      setProgress(100);
+      toast({
+        title: "Conversion complete",
+        description: `Processed ${files.length} files into one CSV`,
+      });
+    } catch (error) {
+      setResults([{
+        fileName: 'combined_orders.csv',
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }]);
+      toast({
+        title: "Conversion failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive"
+      });
     }
-
     setIsProcessing(false);
-    toast({
-      title: "Conversion complete",
-      description: `Processed ${files.length} files`,
-    });
   };
 
   return {
