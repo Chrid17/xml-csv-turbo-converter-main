@@ -214,3 +214,4 @@ export const findElementByPath = (root: Element, path: string, documentRoot: Ele
   }
   
   return current;
+}
