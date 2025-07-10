@@ -1,5 +1,4 @@
 import { XMLField } from '@/types';
-import { findElementByPath } from './xmlParser';
 
 export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: XMLField[]): Promise<string> => {
   const text = await file.text();
