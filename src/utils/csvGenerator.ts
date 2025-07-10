@@ -128,8 +128,9 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           }
           value = foundPackSize;
         } else if (fieldPath === '__gtin__') {
-          // Output GTIN as plain value, no quotes, no formatting
-          value = orderLineItem.querySelector('gtin')?.textContent || '';
+          // Prefix GTIN with single quote to force Excel to treat as text (prevents scientific notation)
+          const rawGtin = orderLineItem.querySelector('gtin')?.textContent || '';
+          value = rawGtin ? "'" + rawGtin : '';
         }
         // Escape CSV special characters, but DO NOT quote GTIN
         if (fieldPath !== '__gtin__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
