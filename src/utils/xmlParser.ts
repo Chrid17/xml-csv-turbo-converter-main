@@ -1,4 +1,3 @@
-
 import { XMLField } from '@/types';
 
 export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
@@ -6,6 +5,10 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(text, 'text/xml');
   
+  if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
+    throw new Error('Invalid XML format');
+  }
+
   const fields: XMLField[] = [];
   const extractFields = (node: Element, path = '') => {
     const nodeName = node.tagName;
@@ -53,8 +56,28 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: orderRef
   });
 
-  // 2. Customer (town)
+  // 2. Branch Code (from buyer > additionalPartyIdentification)
+  let branchCodeSample = '';
   const buyer = xmlDoc.querySelector('buyer');
+  if (buyer) {
+    const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+    const branchCodeObj = additionalPartyIdentifications.find(api => {
+      const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+      const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+      return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
+    });
+    if (branchCodeObj) {
+      branchCodeSample = branchCodeObj.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+    }
+  }
+  mappingFields.push({
+    path: '__branch_code__',
+    name: 'Branch Code',
+    type: 'text',
+    sample: branchCodeSample
+  });
+
+  // 3. Customer (town)
   let customerSample = '';
   if (buyer) {
     const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
@@ -74,7 +97,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: customerSample
   });
 
-  // 3. Creation Date
+  // 4. Creation Date
   const creationDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__creation_date__',
@@ -83,7 +106,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: creationDate
   });
 
-  // 4. Delivery Date
+  // 5. Delivery Date
   const deliveryDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__delivery_date__',
@@ -92,7 +115,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: deliveryDate
   });
 
-  // 5. Order Lines (count)
+  // 6. Order Lines (count)
   const orderLinesCount = xmlDoc.querySelectorAll('orderLineItem').length.toString();
   mappingFields.push({
     path: '__order_lines__',
@@ -101,7 +124,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: orderLinesCount
   });
 
-  // 6. Order Lines/Quantity (per line item)
+  // 7. Order Lines/Quantity (per line item)
   const firstOrderLineQuantity = xmlDoc.querySelector('orderLineItem > requestedQuantity > value')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__order_line_quantity__',
@@ -110,7 +133,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: firstOrderLineQuantity
   });
 
-  // 7. Order Lines/Unit Price (per line item)
+  // 8. Order Lines/Unit Price (per line item)
   const firstOrderLineUnitPrice = xmlDoc.querySelector('orderLineItem > netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
   mappingFields.push({
     path: '__order_line_unit_price__',
@@ -119,7 +142,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
     sample: firstOrderLineUnitPrice
   });
 
-  // 8. Pack Size (per line item)
+  // 9. Pack Size (per line item)
   let firstOrderLinePackSize = '';
   let firstOrderLineGTIN = '';
   const firstOrderLineItem = xmlDoc.querySelector('orderLineItem');
@@ -189,3 +212,9 @@ export const findElementByPath = (root: Element, path: string, documentRoot: Ele
   
   return current;
 };
+
+try {
+  // your conversion logic
+} catch (err) {
+  alert(err instanceof Error ? err.message : String(err));
+}

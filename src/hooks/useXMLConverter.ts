@@ -5,14 +5,26 @@ import { XMLField, ConversionResult } from '@/types';
 import { analyzeXMLStructure } from '@/utils/xmlParser';
 import { convertXMLToCSV, convertMultipleXMLToCSV } from '@/utils/csvGenerator';
 
+// Fixed field order: order reference, branch code, then the rest
+const FIXED_FIELDS = [
+  '__order_reference__',
+  '__branch_code__',
+  '__customer_town__',
+  '__creation_date__',
+  '__delivery_date__',
+  '__order_lines__',
+  '__order_line_quantity__',
+  '__order_line_unit_price__',
+  '__pack_size__',
+  '__gtin__'
+];
+
 export const useXMLConverter = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [xmlFields, setXmlFields] = useState<XMLField[]>([]);
-  const [selectedFields, setSelectedFields] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ConversionResult[]>([]);
-  const [showFieldMapping, setShowFieldMapping] = useState(false);
   const { toast } = useToast();
 
   const handleFilesSelected = useCallback(async (newFiles: File[]) => {
@@ -41,14 +53,11 @@ export const useXMLConverter = () => {
     setResults([]);
     setProgress(0);
     
-    // Analyze first file to extract field structure
+    // Analyze first file to extract field structure (for possible future use)
     if (allFiles.length > 0) {
       try {
         const fields = await analyzeXMLStructure(allFiles[0]);
         setXmlFields(fields);
-        // Auto-select all mapping fields by default
-        setSelectedFields(fields.map(f => f.path));
-        setShowFieldMapping(true);
         console.log('Extracted fields:', fields);
       } catch (error) {
         console.error('Error analyzing XML structure:', error);
@@ -76,22 +85,13 @@ export const useXMLConverter = () => {
       return;
     }
 
-    if (selectedFields.length === 0) {
-      toast({
-        title: "No fields selected",
-        description: "Please select fields to convert",
-        variant: "destructive"
-      });
-      return;
-    }
-
     setIsProcessing(true);
     setProgress(0);
     setResults([]);
 
     try {
-      // Use the new function to combine all files into one CSV
-      const csvData = await convertMultipleXMLToCSV(files, selectedFields, xmlFields, 2); // 2 blank rows between
+      // Use the fixed field order for all conversions
+      const csvData = await convertMultipleXMLToCSV(files, FIXED_FIELDS, xmlFields, 2); // 2 blank rows between
       const result: ConversionResult = {
         fileName: files.length === 1 ? files[0].name.replace(/\.xml$/i, '.csv') : 'combined_orders.csv',
         status: 'success',
@@ -122,12 +122,9 @@ export const useXMLConverter = () => {
   return {
     files,
     xmlFields,
-    selectedFields,
-    setSelectedFields,
     isProcessing,
     progress,
     results,
-    showFieldMapping,
     handleFilesSelected,
     startConversion
   };

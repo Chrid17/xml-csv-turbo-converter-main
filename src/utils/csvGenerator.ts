@@ -131,9 +131,24 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           // Prefix GTIN with single quote to force Excel to treat as text (prevents scientific notation)
           const rawGtin = orderLineItem.querySelector('gtin')?.textContent || '';
           value = rawGtin ? "'" + rawGtin : '';
+        } else if (fieldPath === '__branch_code__') {
+          // Extract branch code from buyer > additionalPartyIdentification
+          const buyer = xmlDoc.querySelector('buyer');
+          if (buyer) {
+            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+            // Find the first numeric value (likely the branch code)
+            const branchCodeObj = additionalPartyIdentifications.find(api => {
+              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
+            });
+            if (branchCodeObj) {
+              value = branchCodeObj.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+            }
+          }
         }
-        // Escape CSV special characters, but DO NOT quote GTIN
-        if (fieldPath !== '__gtin__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+        // Escape CSV special characters, but DO NOT quote GTIN or branch code
+        if (fieldPath !== '__gtin__' && fieldPath !== '__branch_code__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
           value = `"${value.replace(/"/g, '""')}"`;
         }
         row.push(value);
@@ -160,7 +175,7 @@ export const convertMultipleXMLToCSV = async (
 ): Promise<string> => {
   if (files.length === 0) return '';
 
-  let combinedRows: string[][] = [];
+  const combinedRows: string[][] = [];
   let header: string[] = [];
 
   for (let i = 0; i < files.length; i++) {
