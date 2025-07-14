@@ -77,6 +77,27 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
         let value = '';
         if (fieldPath === '__order_reference__') {
           value = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
+          console.log(`Order Reference for row ${index + 1}: ${value}`);
+        } else if (fieldPath === '__branch_code__') {
+          const buyer = xmlDoc.querySelector('buyer');
+          if (buyer) {
+            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+            console.log(`Found ${additionalPartyIdentifications.length} additionalPartyIdentifications for buyer`);
+            const branchCodeIdentification = additionalPartyIdentifications.find(api => {
+              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              console.log(`Checking API: type=${type}, value=${valueText}`);
+              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
+            });
+            if (branchCodeIdentification) {
+              value = branchCodeIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              console.log(`Branch Code found for row ${index + 1}: ${value}`);
+            } else {
+              console.log(`No numeric branch code found for row ${index + 1}`);
+            }
+          } else {
+            console.log(`No buyer element found for row ${index + 1}`);
+          }
         } else if (fieldPath === '__customer_town__') {
           const buyer = xmlDoc.querySelector('buyer');
           if (buyer) {
@@ -88,6 +109,7 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
             });
             if (townIdentification) {
               value = townIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              console.log(`Customer Town for row ${index + 1}: ${value}`);
             }
           }
         } else if (fieldPath === '__creation_date__') {
@@ -99,6 +121,7 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           } else {
             value = ymd;
           }
+          console.log(`Creation Date for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__delivery_date__') {
           const delDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
           if (/^\d{4}-\d{2}-\d{2}$/.test(delDate)) {
@@ -107,12 +130,16 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           } else {
             value = delDate;
           }
+          console.log(`Delivery Date for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__order_lines__') {
           value = (index + 1).toString();
+          console.log(`Order Line for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__order_line_quantity__') {
           value = orderLineItem.querySelector('requestedQuantity > value')?.textContent?.trim() || '';
+          console.log(`Order Line Quantity for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__order_line_unit_price__') {
           value = orderLineItem.querySelector('netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
+          console.log(`Order Line Unit Price for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__pack_size__') {
           // Robust: always pick the first SUPPLIER_ASSIGNED numeric value for this line
           let foundPackSize = '';
@@ -127,13 +154,13 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
             }
           }
           value = foundPackSize;
+          console.log(`Pack Size for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__gtin__') {
-          // Prefix GTIN with single quote to force Excel to treat as text (prevents scientific notation)
-          const rawGtin = orderLineItem.querySelector('gtin')?.textContent || '';
-          value = rawGtin ? "'" + rawGtin : '';
+          value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
+          console.log(`GTIN for row ${index + 1}: ${value}`);
         }
-        // Escape CSV special characters, but DO NOT quote GTIN
-        if (fieldPath !== '__gtin__' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+        // Escape CSV special characters
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
           value = `"${value.replace(/"/g, '""')}"`;
         }
         row.push(value);
@@ -151,7 +178,6 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
   return csvContent;
 };
 
-// NEW: Combine multiple XML files into one CSV with blank rows between each file's data
 export const convertMultipleXMLToCSV = async (
   files: File[],
   fields: string[],
@@ -160,7 +186,7 @@ export const convertMultipleXMLToCSV = async (
 ): Promise<string> => {
   if (files.length === 0) return '';
 
-  let combinedRows: string[][] = [];
+  const combinedRows: string[][] = [];
   let header: string[] = [];
 
   for (let i = 0; i < files.length; i++) {
