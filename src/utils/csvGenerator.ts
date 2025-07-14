@@ -91,6 +91,10 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
             });
             if (branchCodeIdentification) {
               value = branchCodeIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+              // Prepend 'WBW' to the three-digit branch code
+              if (value) {
+                value = 'WBW' + value;
+              }
               console.log(`Branch Code found for row ${index + 1}: ${value}`);
             } else {
               console.log(`No numeric branch code found for row ${index + 1}`);
@@ -141,13 +145,11 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           value = orderLineItem.querySelector('netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
           console.log(`Order Line Unit Price for row ${index + 1}: ${value}`);
         } else if (fieldPath === '__pack_size__') {
-          // Robust: always pick the first SUPPLIER_ASSIGNED numeric value for this line
           let foundPackSize = '';
           const additionalTradeItemIdentifications = Array.from(orderLineItem.querySelectorAll('additionalTradeItemIdentification'));
           for (const ati of additionalTradeItemIdentifications) {
             const type = ati.querySelector('additionalTradeItemIdentificationType')?.textContent?.trim();
             const valueText = ati.querySelector('additionalTradeItemIdentificationValue')?.textContent?.trim() || '';
-            // Only accept 1-3 digit numbers as pack size
             if (type === 'SUPPLIER_ASSIGNED' && /^\d{1,3}$/.test(valueText)) {
               foundPackSize = valueText;
               break;
@@ -159,8 +161,10 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
           value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
           console.log(`GTIN for row ${index + 1}: ${value}`);
         }
-        // Escape CSV special characters
-        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        // Always wrap branch code in quotes to ensure Excel treats it as text
+        if (fieldPath === '__branch_code__') {
+          value = `"${value.replace(/"/g, '""')}"`;
+        } else if (value.includes(',') || value.includes('"') || value.includes('\n')) {
           value = `"${value.replace(/"/g, '""')}"`;
         }
         row.push(value);
@@ -182,7 +186,7 @@ export const convertMultipleXMLToCSV = async (
   files: File[],
   fields: string[],
   xmlFields: XMLField[],
-  blankRowCount: number = 2 // Number of blank rows between each file's data
+  blankRowCount: number = 0
 ): Promise<string> => {
   if (files.length === 0) return '';
 
@@ -196,18 +200,10 @@ export const convertMultipleXMLToCSV = async (
       header = lines[0];
       combinedRows.push(header);
     }
-    // Always skip header for subsequent files
-    const dataRows = i === 0 ? lines.slice(1) : lines.slice(1);
-    if (i > 0) {
-      // Insert blank rows for separation
-      for (let b = 0; b < blankRowCount; b++) {
-        combinedRows.push(Array(header.length).fill(''));
-      }
-    }
+    const dataRows = lines.slice(1);
     combinedRows.push(...dataRows);
   }
 
-  // Remove trailing blank rows
   while (combinedRows.length > 0 && combinedRows[combinedRows.length - 1].every(cell => cell === '')) {
     combinedRows.pop();
   }
