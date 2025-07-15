@@ -18,132 +18,87 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
   rows.push(headers);
   console.log('CSV Headers:', headers);
 
-  // Find all possible record nodes by looking for repeating elements
-  const findAllRecordNodes = (node: Element): Element[] => {
-    const allNodes: Element[] = [];
-    
-    // Check if current node has data (text content or attributes)
-    const hasData = node.textContent?.trim() || node.attributes.length > 0;
-    if (hasData) {
-      allNodes.push(node);
-    }
-    
-    // Recursively search children
-    Array.from(node.children).forEach(child => {
-      const childNodes = findAllRecordNodes(child);
-      allNodes.push(...childNodes);
-    });
-    
-    return allNodes;
-  };
-
-  // Get all potential record nodes
-  const allNodes = xmlDoc.documentElement ? findAllRecordNodes(xmlDoc.documentElement) : [];
-  console.log(`Found ${allNodes.length} potential record nodes`);
-
-  // Group nodes that might represent the same type of record
-  const nodesByTag: { [key: string]: Element[] } = {};
-  allNodes.forEach(node => {
-    const tagName = node.tagName;
-    if (!nodesByTag[tagName]) {
-      nodesByTag[tagName] = [];
-    }
-    nodesByTag[tagName].push(node);
-  });
-
-  // Find the tag with the most instances (likely our record type)
-  let recordNodes: Element[] = [];
-  let maxCount = 0;
-  Object.entries(nodesByTag).forEach(([tag, nodes]) => {
-    if (nodes.length > maxCount && nodes.length > 1) {
-      maxCount = nodes.length;
-      recordNodes = nodes;
-    }
-  });
-
-  // If no repeating elements found, treat the entire document as one record
-  if (recordNodes.length === 0 && xmlDoc.documentElement) {
-    recordNodes = [xmlDoc.documentElement];
-  }
-
-  console.log(`Processing ${recordNodes.length} record nodes`);
-
-  // For new mapping: only use <orderLineItem> as record nodes
   const orderLineItems = Array.from(xmlDoc.querySelectorAll('orderLineItem'));
   if (orderLineItems.length > 0) {
+    const orderRef = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
+    let branchCode = '';
+    const buyer = xmlDoc.querySelector('buyer');
+    if (buyer) {
+      const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+      const branchCodeIdentification = additionalPartyIdentifications.find(api => {
+        const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+        const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+        return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
+      });
+      if (branchCodeIdentification) {
+        branchCode = 'WBW' + (branchCodeIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '');
+      }
+    }
+    let customer = '';
+    if (buyer) {
+      const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
+      const townIdentification = additionalPartyIdentifications.find(api => {
+        const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
+        const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+        return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /[a-zA-Z]/.test(valueText);
+      });
+      if (townIdentification) {
+        customer = townIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
+      }
+    }
+    const creationDate = (() => {
+      const fullDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
+      let [datePart] = fullDate.split('T');
+      if (!datePart) datePart = fullDate; // Handle cases where no 'T' separator exists
+      if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+        const [y, m, d] = datePart.split('-');
+        return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      } else if (/^\d{2}-\d{2}-\d{4}$/.test(datePart)) {
+        const [d, m, y] = datePart.split('-');
+        return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      }
+      return datePart; // Fallback for invalid formats
+    })();
+    const deliveryDate = (() => {
+      const delDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(delDate)) {
+        const [y, m, d] = delDate.split('-');
+        return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      } else if (/^\d{2}-\d{2}-\d{4}$/.test(delDate)) {
+        const [d, m, y] = delDate.split('-');
+        return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      }
+      return delDate; // Fallback for invalid formats
+    })();
+
     orderLineItems.forEach((orderLineItem, index) => {
       const row: string[] = [];
       fields.forEach(fieldPath => {
         let value = '';
         if (fieldPath === '__order_reference__') {
-          value = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
-          console.log(`Order Reference for row ${index + 1}: ${value}`);
+          value = (index === 0) ? orderRef : '';
+          console.log(`Order Reference for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__branch_code__') {
-          const buyer = xmlDoc.querySelector('buyer');
-          if (buyer) {
-            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
-            console.log(`Found ${additionalPartyIdentifications.length} additionalPartyIdentifications for buyer`);
-            const branchCodeIdentification = additionalPartyIdentifications.find(api => {
-              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
-              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-              console.log(`Checking API: type=${type}, value=${valueText}`);
-              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /^\d+$/.test(valueText);
-            });
-            if (branchCodeIdentification) {
-              value = branchCodeIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-              // Prepend 'WBW' to the three-digit branch code
-              if (value) {
-                value = 'WBW' + value;
-              }
-              console.log(`Branch Code found for row ${index + 1}: ${value}`);
-            } else {
-              console.log(`No numeric branch code found for row ${index + 1}`);
-            }
-          } else {
-            console.log(`No buyer element found for row ${index + 1}`);
-          }
+          value = (index === 0) ? branchCode : '';
+          console.log(`Branch Code for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__customer_town__') {
-          const buyer = xmlDoc.querySelector('buyer');
-          if (buyer) {
-            const additionalPartyIdentifications = Array.from(buyer.querySelectorAll('additionalPartyIdentification'));
-            const townIdentification = additionalPartyIdentifications.find(api => {
-              const type = api.querySelector('additionalPartyIdentificationType')?.textContent?.trim();
-              const valueText = api.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-              return type === 'BUYER_ASSIGNED_IDENTIFIER_FOR_A_PARTY' && /[a-zA-Z]/.test(valueText);
-            });
-            if (townIdentification) {
-              value = townIdentification.querySelector('additionalPartyIdentificationValue')?.textContent?.trim() || '';
-              console.log(`Customer Town for row ${index + 1}: ${value}`);
-            }
-          }
+          value = (index === 0) ? customer : '';
+          console.log(`Customer Town for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__creation_date__') {
-          const fullDate = xmlDoc.querySelector('DocumentIdentification > CreationDateAndTime')?.textContent?.trim() || '';
-          const ymd = fullDate.split('T')[0];
-          if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-            const [y, m, d] = ymd.split('-');
-            value = `${parseInt(d, 10)}/${parseInt(m, 10)}/${y}`;
-          } else {
-            value = ymd;
-          }
-          console.log(`Creation Date for row ${index + 1}: ${value}`);
+          value = (index === 0) ? creationDate : '';
+          console.log(`Creation Date for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__delivery_date__') {
-          const delDate = xmlDoc.querySelector('orderLogisticalDateGroup > requestedDeliveryDateAtUltimateConsignee > date')?.textContent?.trim() || '';
-          if (/^\d{4}-\d{2}-\d{2}$/.test(delDate)) {
-            const [y, m, d] = delDate.split('-');
-            value = `${parseInt(d, 10)}/${parseInt(m, 10)}/${y}`;
-          } else {
-            value = delDate;
-          }
-          console.log(`Delivery Date for row ${index + 1}: ${value}`);
+          value = (index === 0) ? deliveryDate : '';
+          console.log(`Delivery Date for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__order_lines__') {
           value = (index + 1).toString();
-          console.log(`Order Line for row ${index + 1}: ${value}`);
+          console.log(`Order Line for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__order_line_quantity__') {
           value = orderLineItem.querySelector('requestedQuantity > value')?.textContent?.trim() || '';
-          console.log(`Order Line Quantity for row ${index + 1}: ${value}`);
+          console.log(`Order Line Quantity for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__order_line_unit_price__') {
           value = orderLineItem.querySelector('netPrice > amount > monetaryAmount')?.textContent?.trim() || '';
-          console.log(`Order Line Unit Price for row ${index + 1}: ${value}`);
+          console.log(`Order Line Unit Price for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__pack_size__') {
           let foundPackSize = '';
           const additionalTradeItemIdentifications = Array.from(orderLineItem.querySelectorAll('additionalTradeItemIdentification'));
@@ -156,13 +111,13 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
             }
           }
           value = foundPackSize;
-          console.log(`Pack Size for row ${index + 1}: ${value}`);
+          console.log(`Pack Size for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__gtin__') {
           value = orderLineItem.querySelector('gtin')?.textContent?.trim() || '';
-          console.log(`GTIN for row ${index + 1}: ${value}`);
+          console.log(`GTIN for row ${index + 1}: "${value}"`);
         }
-        // Always wrap branch code in quotes to ensure Excel treats it as text
-        if (fieldPath === '__branch_code__') {
+        value = value.trim();
+        if (fieldPath === '__branch_code__' && value) {
           value = `"${value.replace(/"/g, '""')}"`;
         } else if (value.includes(',') || value.includes('"') || value.includes('\n')) {
           value = `"${value.replace(/"/g, '""')}"`;
@@ -177,7 +132,7 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
   }
 
   const csvContent = rows.map(row => row.join(',')).join('\n');
-  console.log(`Generated CSV with ${rows.length - 1} data rows`);
+  console.log(`Generated CSV with ${rows.length - 1} data rows:`, csvContent);
   
   return csvContent;
 };
@@ -195,7 +150,7 @@ export const convertMultipleXMLToCSV = async (
 
   for (let i = 0; i < files.length; i++) {
     const csv = await convertXMLToCSV(files[i], fields, xmlFields);
-    const lines = csv.split('\n').map(line => line.split(','));
+    const lines = csv.split('\n').map(line => line.split(',').map(cell => cell.trim()));
     if (i === 0) {
       header = lines[0];
       combinedRows.push(header);
@@ -208,7 +163,9 @@ export const convertMultipleXMLToCSV = async (
     combinedRows.pop();
   }
 
-  return combinedRows.map(row => row.join(',')).join('\n');
+  const finalCsv = combinedRows.map(row => row.join(',')).join('\n');
+  console.log('Combined CSV:', finalCsv);
+  return finalCsv;
 };
 
 export const downloadAllAsZip = async (results: Array<{ fileName: string; status: string; csvData?: string }>) => {
