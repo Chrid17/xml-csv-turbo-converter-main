@@ -145,11 +145,25 @@ export const convertMultipleXMLToCSV = async (
 ): Promise<string> => {
   if (files.length === 0) return '';
 
+  // Load previously processed files from localStorage
+  const storedFiles = localStorage.getItem('processedFiles');
+  const processedFiles = new Set<string>(storedFiles ? JSON.parse(storedFiles) : []);
+
   const combinedRows: string[][] = [];
   let header: string[] = [];
 
   for (let i = 0; i < files.length; i++) {
-    const csv = await convertXMLToCSV(files[i], fields, xmlFields);
+    const file = files[i];
+    const fileName = file.name;
+
+    // Check for duplicate file
+    if (processedFiles.has(fileName)) {
+      console.log(`Duplicate file detected and skipped: ${fileName}`);
+      continue; // Skip processing this file
+    }
+
+    // Process the file
+    const csv = await convertXMLToCSV(file, fields, xmlFields);
     const lines = csv.split('\n').map(line => line.split(',').map(cell => cell.trim()));
     if (i === 0) {
       header = lines[0];
@@ -157,6 +171,10 @@ export const convertMultipleXMLToCSV = async (
     }
     const dataRows = lines.slice(1);
     combinedRows.push(...dataRows);
+
+    // Mark file as processed
+    processedFiles.add(fileName);
+    localStorage.setItem('processedFiles', JSON.stringify(Array.from(processedFiles)));
   }
 
   while (combinedRows.length > 0 && combinedRows[combinedRows.length - 1].every(cell => cell === '')) {
