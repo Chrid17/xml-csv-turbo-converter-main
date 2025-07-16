@@ -8,8 +8,7 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
   
   if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('Invalid XML format');
-  }
-
+  }  
   const rows: string[][] = [];
   const headers = fields.map(path => {
     const field = xmlFields.find(f => f.path === path);
