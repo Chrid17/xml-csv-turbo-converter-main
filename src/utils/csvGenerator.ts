@@ -1,6 +1,5 @@
 import { XMLField } from '@/types';
-import { findElementByPath } from './xmlParser';
-
+// import { findElementByPath } from './xmlParser'; //
 export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: XMLField[]): Promise<string> => {
   const text = await file.text();
   const parser = new DOMParser();
@@ -74,9 +73,9 @@ export const convertXMLToCSV = async (file: File, fields: string[], xmlFields: X
       const row: string[] = [];
       fields.forEach(fieldPath => {
         let value = '';
-        if (fieldPath === '__order_reference__') {
+        if (fieldPath === '__customer_reference__') {
           value = (index === 0) ? orderRef : '';
-          console.log(`Order Reference for row ${index + 1}: "${value}"`);
+          console.log(`Customer Reference for row ${index + 1}: "${value}"`);
         } else if (fieldPath === '__branch_code__') {
           value = (index === 0) ? branchCode : '';
           console.log(`Branch Code for row ${index + 1}: "${value}"`);

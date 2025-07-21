@@ -46,8 +46,8 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
   // 1. Order Reference
   const orderRef = xmlDoc.querySelector('orderIdentification > uniqueCreatorIdentification')?.textContent?.trim() || '';
   mappingFields.push({
-    path: '__order_reference__',
-    name: 'Order Reference',
+    path: '__customer_reference__',
+    name: 'Customer Reference',
     type: 'text',
     sample: orderRef
   });
@@ -88,7 +88,7 @@ export const analyzeXMLStructure = async (file: File): Promise<XMLField[]> => {
   }
   mappingFields.push({
     path: '__customer_town__',
-    name: 'Customer',
+    name: 'Customer Town',
     type: 'text',
     sample: customerSample
   });
